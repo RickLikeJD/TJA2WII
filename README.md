@@ -46,7 +46,7 @@ This tool has been explicitly built for and tested with:
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/TJA2WII.git
+git clone https://github.com/RickLikeJD/TJA2WII.git
 cd TJA2Wii
 ```
 
@@ -140,7 +140,7 @@ Compatível e testado com:
 1. Clone o repositório:
 
 ```bash
-git clone https://github.com/seuusuario/TJA2WII.git
+git clone https://github.com/RickLikeJD/TJA2WII.git
 cd TJA2Wii
 ```
 
