@@ -1,4 +1,4 @@
-# TJA2Wii
+# TJA2WII
 
 <div align="center">
 
@@ -15,7 +15,7 @@
 
 # English
 
-**TJA2Wii** is a modding toolchain that automates the conversion of TJAs files into native binary formats for Taiko no Tatsujin Wii. It handles everything from chart data and audio processing to textures and metadata, outputting files ready to be injected directly into the game.
+**TJA2WII** is a modding toolchain that automates the conversion of TJAs files into native binary formats for Taiko no Tatsujin Wii. It handles everything from chart data and audio processing to textures and metadata, outputting files ready to be injected directly into the game.
 
 ## Features
 
@@ -46,7 +46,7 @@ This tool has been explicitly built for and tested with:
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/TJA2Wii.git
+git clone https://github.com/yourusername/TJA2WII.git
 cd TJA2Wii
 ```
 
@@ -88,7 +88,7 @@ Generated files:
 
 ## Support & Donations
 
-If TJA2Wii helped you build your dream custom tracklist and saved you hours of manual hex editing, consider supporting the project.
+If TJA2WII helped you build your dream custom tracklist and saved you hours of manual hex editing, consider supporting the project.
 
 * [Ko-fi](https://ko-fi.com/ricklikejd)
 * Open an issue on GitHub for bug reports and feature requests
@@ -108,7 +108,7 @@ Released under the **MIT License**.
 
 # Português
 
-**TJA2Wii** é um conjunto de ferramentas que automatiza a conversão de arquivos TJA (Taiko Jargon Archive) em formatos binários nativos do Taiko no Tatsujin para Wii. Ele gerencia desde charts e áudio até texturas e metadados, gerando arquivos prontos para serem injetados no jogo.
+**TJA2WII** é um conjunto de ferramentas que automatiza a conversão de arquivos TJAs em formatos binários nativos do Taiko no Tatsujin para Wii. Ele gerencia desde charts e áudio até texturas e metadados, gerando arquivos prontos para serem injetados no jogo.
 
 ## Recursos
 
@@ -140,7 +140,7 @@ Compatível e testado com:
 1. Clone o repositório:
 
 ```bash
-git clone https://github.com/seuusuario/TJA2Wii.git
+git clone https://github.com/seuusuario/TJA2WII.git
 cd TJA2Wii
 ```
 
@@ -181,7 +181,7 @@ Arquivos gerados:
 
 ## Suporte e Doações
 
-Se o TJA2Wii ajudou você a criar uma tracklist personalizada e economizou horas de edição hexadecimal manual, considere apoiar o projeto.
+Se o TJA2WII ajudou você a criar uma tracklist personalizada e economizou horas de edição hexadecimal manual, considere apoiar o projeto.
 
 * [Ko-fi](https://ko-fi.com/ricklikejd)
 * Abra uma issue no GitHub para relatar problemas ou sugerir melhorias
