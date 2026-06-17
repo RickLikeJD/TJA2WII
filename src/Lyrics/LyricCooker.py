@@ -18,14 +18,25 @@ class LyricCooker:
     def clean_text(self, text):
         """
         Converts to Hiragana if requested, then removes accents to prevent engine crashes.
+        Preserves Japanese dakuten and handakuten.
         """
         if self.convert_romaji:
-            # Transforma Romaji em Hiragana usando o jaconv
+            # Converts Romaji to Hiragana using jaconv
             text = jaconv.alphabet2kana(text)
 
-        # Limpeza de acentos anti-crash (para o que sobrar de alfabeto latino)
+        # Decomposes characters (separates letters from their accents/marks)
         normalized = unicodedata.normalize('NFD', text)
-        return ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+
+        # Filters out Latin accents (Mn), but preserves Japanese marks:
+        # \u3099 = COMBINING KATAKANA-HIRAGANA VOICED SOUND MARK (Dakuten)
+        # \u309A = COMBINING KATAKANA-HIRAGANA SEMI-VOICED SOUND MARK (Handakuten)
+        filtered = ''.join(
+            c for c in normalized
+            if unicodedata.category(c) != 'Mn' or c in ('\u3099', '\u309A')
+        )
+
+        # Recomposes characters (NFC) - VITAL step for the 'shift_jis' encode to work
+        return unicodedata.normalize('NFC', filtered)
 
     def parse_lrc(self, lrc_path, offset_seconds=0.0):
         """Reads an .lrc file and converts timestamps."""
