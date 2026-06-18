@@ -1,6 +1,6 @@
 # TJA2WII
 
-<div align="center">
+<div>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/downloads/)
@@ -123,7 +123,7 @@ Compatível e testado com:
 
 * -[x] TnT Wii: Chogouka-Ban** (Taiko Wii 5)
 * -[x] TnT Wii: Keitebban** (Taiko Wii 4)
-* -[] TnT Wii: Minna no Party Sandaime** (Taiko Wii 3)
+* -[ ] TnT Wii: Minna no Party Sandaime** (Taiko Wii 3)
 * -[ ] TnT Wii: Do-Don to Nidaime!** (Taiko Wii 2)
 * -[ ] Taiko no Tatsujin Wii** (Taiko Wii)
 
