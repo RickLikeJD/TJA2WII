@@ -17,6 +17,7 @@ GENRES = {
     7: "7 - NULL"
 }
 
+# Thx Berdstep for the list :)
 DANCERS = {
     0: "00 - Default",
     1: "01 - Mappy",
@@ -25,7 +26,14 @@ DANCERS = {
     4: "04 - Monster Hunter",
     5: "05 - Idolmaster",
     6: "06 - Idolmaster Variant",
-    7: "07 - Mii"
+    7: "07 - Hatsune Miku",
+    8: "08 - Doraemon",
+    9: "09 - YMCK",
+    10: "10 - GUMI",
+    11: "11 - Dragon Quest",
+    12: "12 - Animal Kaizer!!",
+    13: "13 - Mojipittan",
+    14: "14 - Mii",
 }
 
 @dataclass
