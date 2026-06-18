@@ -72,8 +72,19 @@ class TextureCooker:
         print(f"[Texture] '{song_id}' registered in the texture queue.")
 
     def _strip_accents(self, text):
+        # Decomposes characters (separates letters from their accents/marks)
         normalized = unicodedata.normalize('NFD', text)
-        return ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+
+        # Filters out Latin accents (Mn), but preserves Japanese marks:
+        # \u3099 = COMBINING KATAKANA-HIRAGANA VOICED SOUND MARK (Dakuten)
+        # \u309A = COMBINING KATAKANA-HIRAGANA SEMI-VOICED SOUND MARK (Handakuten)
+        filtered = ''.join(
+            c for c in normalized
+            if unicodedata.category(c) != 'Mn' or c in ('\u3099', '\u309A')
+        )
+
+        # Recomposes characters (NFC)
+        return unicodedata.normalize('NFC', filtered)
 
     def _normalize_text(self, text):
         text = re.sub(r' +', ' ', text).strip()
