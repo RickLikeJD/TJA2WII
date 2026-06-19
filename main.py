@@ -6,7 +6,7 @@ from src.Lyrics.LyricCooker import LyricCooker
 from src.Sheet.SheetCooker import SheetCooker
 from src.Texture.TextureCooker import TextureCooker
 from src.MusicInfo.MusicInfoCooker import MusicInfoCooker, GENRES, DANCERS
-from src.Tuning.TuningCooker import TuningCooker
+from src.Tuning.TuningCooker import TuningCooker, VERSIONS
 from src.MusicInfo.FumenSyncCooker import FumenSyncCooker
 from src.Config.config import get_songs_folder
 
@@ -32,9 +32,27 @@ def main():
         print(f"The folder '{songs_folder}' not found.")
         return
 
-    # Inicia as Sessões Globais!
-    info_cooker = MusicInfoCooker()
-    tuning_cooker = TuningCooker()
+    # Menu de seleção com visual mais limpo usando questionary.Choice
+    version_choices = [
+        questionary.Choice(title=f"{v} | Taiko Wii {k}", value=f"wii{k}")
+        for k, v in VERSIONS.items()
+    ]
+
+    target_version_id = questionary.select(
+        "Which Taiko Wii game are you modding for?",
+        choices=version_choices
+    ).ask()
+
+    if not target_version_id:
+        print("Operation canceled.")
+        return
+
+    # Como usamos o 'value' no Choice, ele já retorna 'wii3', 'wii4' ou 'wii5' direto!
+    print(f"Targeting: {target_version_id.upper()}\n")
+
+    # Inicia as Sessões Globais passando o target_version!
+    info_cooker = MusicInfoCooker() # Passe a versão aqui também se necessário no futuro
+    tuning_cooker = TuningCooker(target_version=target_version_id)
     sync_cooker = FumenSyncCooker()
     texture_cooker = TextureCooker()
 
@@ -42,21 +60,34 @@ def main():
     session_data = []
 
     # =========================================================
-    # 💾 SISTEMA DE LOAD STATE (Continuar Sessão Anterior)
+    # Continue Previous Session
     # =========================================================
     if os.path.exists(session_file):
         load_session = questionary.confirm("Found a previous modding session! Do you want to load it and continue adding songs?").ask()
         if load_session:
             with open(session_file, "r", encoding="utf-8") as f:
-                session_data = json.load(f)
-            
-            # Repopula a memória dos Cookers com as músicas antigas
+                saved_state = json.load(f)
+
+            # 🛠️ FIX: Trata saves antigos que eram apenas listas
+            if isinstance(saved_state, list):
+                print("[Warning] Old session format detected. Bypassing version check.")
+                session_data = saved_state
+            else:
+                # É o formato novo com dicionário
+                if saved_state.get("target_version") != target_version_id:
+                    print(f"[Warning] The saved session was targeted for {saved_state.get('target_version')}, but you selected {target_version_id}.")
+                    override = questionary.confirm("Do you want to ignore this mismatch and load it anyway?").ask()
+                    if not override:
+                        return
+                session_data = saved_state.get("songs", [])
+
+            # Repopulates the Cookers' memory with the previously saved songs
             for s in session_data:
                 info_cooker.add_song(s['id'], s['title'], s['preview'], s['genre'], s['lyrics'], s['dancer'])
                 tuning_cooker.add_song(s['id'], s['title'], s['bpm'], s['stars'])
                 sync_cooker.add_song(s['id'], s['offset'])
                 texture_cooker.add_song(s['title'], s['artist'], s['id'])
-            
+
             print(f"\n[Session Manager] Successfully loaded {len(session_data)} previous songs into memory!\n")
         else:
             clear_session = questionary.confirm("Do you want to delete the previous session and start fresh?").ask()
@@ -305,7 +336,7 @@ def main():
         audio_cooker.CookWAV(audio_path, song_id)
         shutil.rmtree("temp")
 
-        sheet_cooker = SheetCooker(real_tja_path, song_id)
+        sheet_cooker = SheetCooker(real_tja_path, song_id, target_version=target_version_id)
         lyric_cooker = LyricCooker(song_id, convert_romaji=convert_to_kana)
 
         if has_lyrics:
@@ -338,9 +369,6 @@ def main():
         tuning_cooker.add_song(song_id, real_title, real_bpm, real_stars)
         sync_cooker.add_song(song_id, real_offset)
 
-        # =========================================================
-        # 💾 SALVANDO O STATE DA SESSÃO ATUAL
-        # =========================================================
         song_dict = {
             'id': song_id,
             'title': real_title,
@@ -354,9 +382,15 @@ def main():
             'offset': real_offset
         }
         session_data.append(song_dict)
-        
+
+        # 🛠️ FIX: Salva no formato novo (Dicionário com versão do target)
+        state_to_save = {
+            "target_version": target_version_id,
+            "songs": session_data
+        }
+
         with open(session_file, "w", encoding="utf-8") as f:
-            json.dump(session_data, f, ensure_ascii=False, indent=4)
+            json.dump(state_to_save, f, ensure_ascii=False, indent=4)
 
         add_more = questionary.confirm("\nDo you want to process another song and add it to this mod session?").ask()
         if not add_more:

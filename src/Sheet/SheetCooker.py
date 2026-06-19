@@ -25,7 +25,6 @@ LONG_NOTE_TYPES = {'5', '6', '7', '9'}
 BALLOON_IDS     = {0xa, 0xc}
 DRUMROLL_IDS    = {0x6, 0x9, 0x62}
 
-# '>' forces Big Endian packing
 ORDER = '>'
 
 STAR_TO_KEY = {
@@ -51,13 +50,11 @@ COURSE_NORMALIZE = {
     '0':'Easy','1':'Normal','2':'Hard','3':'Oni','4':'Ura',
 }
 
-# ===========================================================================
-# MAIN CLASS
-# ===========================================================================
 class SheetCooker:
-    def __init__(self, tja_path, song_id):
+    def __init__(self, tja_path, song_id, target_version="wii5"):
         self.tja_path = tja_path
         self.song_id = song_id.lower()
+        self.target_version = target_version.lower()
         self.tja_content = ""
         self.courses_found = []
 
@@ -70,7 +67,6 @@ class SheetCooker:
             'edit': 'x'
         }
 
-        # Load the TJA file immune to invisible EOF characters (\x1A)
         for enc in ('utf-8-sig', 'shift-jis', 'latin-1'):
             try:
                 with open(self.tja_path, 'rb') as f:
@@ -200,11 +196,20 @@ class SheetCooker:
         good, ok, bad = self.get_hp_values(n_notes, diff_hp, stars)
         hp_clear = HP_CLEAR.get(diff_hp, 8000)
 
-        fmt  = ORDER + 'f'*108 + 'i'*22
-        vals = list(tw) * 36 + [
-            0, 10000, hp_clear, good, ok, bad, 65536, 65536, 65536,
-            20, 10, 0, 1, 20, 10, 1, 30, 30, 20, 12345678, n_measures, 0,
-        ]
+        # 🔥 CORREÇÃO GLOBAL DO WII 3: Injeção do Total de Notas para fechar o alinhamento de 516 bytes
+        if self.target_version == "wii3":
+            fmt = ORDER + 'f'*108 + 'i'*21
+            vals = list(tw) * 36 + [
+                0, n_notes, 10000, hp_clear, good, ok, bad, 65536, 65536, 65536,
+                20, 10, 0, 1, 20, 10, 1, 30, 30, 0, n_measures
+            ]
+        else:
+            fmt  = ORDER + 'f'*108 + 'i'*22
+            vals = list(tw) * 36 + [
+                0, 10000, hp_clear, good, ok, bad, 65536, 65536, 65536,
+                20, 10, 0, 1, 20, 10, 1, 30, 30, 20, 12345678, n_measures, 0,
+            ]
+
         return struct.pack(fmt, *vals)
 
     def auto_calculate_scores(self, total_notes):
@@ -262,9 +267,6 @@ class SheetCooker:
                     val = l.split(':',1)[1].strip()
                     if val: score_diff = int(val.split(',')[0].strip())
 
-        # =================================================================
-        # NOVO MOTOR DE RENDERIZAÇÃO DE TEMPO (SLICE-BY-SLICE PRECISION)
-        # =================================================================
         current_bpm, current_scroll, current_measure_beats = bpm_base, 1.0, 4.0
         is_gogo, open_long_note = False, None
         notes_data, measures_raw = [], []
@@ -272,7 +274,6 @@ class SheetCooker:
         in_target_course, in_start = False, False
         measure_buf, measure_events = "", []
 
-        # Converte o OFFSET do TJA de segundos para milissegundos absolutos (Hit Time inicial)
         abs_time_ms = (offset_s * -1 * 1000.0)
 
         for line in lines:
@@ -289,7 +290,6 @@ class SheetCooker:
             if line == '#END': break
             if not in_start: continue
 
-            # Captura de Eventos de Header / Measure
             if line.startswith('#'):
                 cmd = line.split()
                 if not cmd: continue
@@ -304,10 +304,7 @@ class SheetCooker:
                 elif command == '#MEASURE':
                     parts = cmd[1].strip().split('/')
                     measure_events.append({'idx':ev_idx,'type':'MEASURE','value':float(parts[0]) * (4.0 / float(parts[1]))})
-
-                # 👇 AQUI ESTÁ O PARSE QUE ESTAVA FALTANDO! 👇
                 elif command == '#LYRIC':
-                    # Pega o texto da letra ignorando o comando '#LYRIC' (mantendo maiúsculas e minúsculas)
                     lyric_text = line[len(cmd[0]):].strip()
                     measure_events.append({'idx':ev_idx,'type':'LYRIC','value':lyric_text})
                 continue
@@ -317,14 +314,12 @@ class SheetCooker:
                     measure_buf += char
                     continue
 
-                # Bateu na vírgula! Processa o compasso acumulado.
                 measure_str = measure_buf
                 slices = max(1, len(measure_str))
                 note_count = len(measure_str)
 
-                # Processa os eventos do ÍNICIO do compasso (idx == 0)
                 for ev in measure_events:
-                    if ev['idx'] == 0:  # ⬅️ IMPORTANTE: Isso aqui tem que ser 0, não idx!
+                    if ev['idx'] == 0:
                         if ev['type'] == 'BPM': current_bpm = ev['value']
                         elif ev['type'] == 'GOGO': is_gogo = ev['value']
                         elif ev['type'] == 'SCROLL': current_scroll = ev['value']
@@ -332,7 +327,6 @@ class SheetCooker:
                         elif ev['type'] == 'DELAY':
                             delay_val = ev['value'] * 1000.0
                             abs_time_ms += delay_val
-                        # Hook da Letra
                         elif ev['type'] == 'LYRIC':
                             if hasattr(self, 'lyric_cooker') and self.lyric_cooker:
                                 self.lyric_cooker.add_lyric(abs_time_ms / 1000.0, ev['value'])
@@ -340,17 +334,13 @@ class SheetCooker:
                 meas_bpm_h = current_bpm
                 meas_scroll_h = current_scroll
                 meas_gogo_h = is_gogo
-
-                # A MÁGICA DE VERDADE: Draw Lead Time
                 fumen_offset = abs_time_ms - (4.0 * 60000.0 / meas_bpm_h)
 
                 drums_start = len(notes_data)
-
                 slice_beats = current_measure_beats / slices
                 current_time_ms = abs_time_ms
                 current_measure_pos_ms = 0.0
 
-                # Itera a malha (slice by slice) garantindo que mudanças de BPM/Delay AFETEM o tempo real
                 for idx in range(slices):
                     if idx > 0:
                         for ev in measure_events:
@@ -362,7 +352,6 @@ class SheetCooker:
                                     delay_val = ev['value'] * 1000.0
                                     current_time_ms += delay_val
                                     current_measure_pos_ms += delay_val
-                                # Hook da Letra
                                 elif ev['type'] == 'LYRIC':
                                     if hasattr(self, 'lyric_cooker') and self.lyric_cooker:
                                         self.lyric_cooker.add_lyric(current_time_ms / 1000.0, ev['value'])
@@ -392,11 +381,9 @@ class SheetCooker:
                                 open_long_note = (len(notes_data), note_abs_ms)
                             notes_data.append(note)
 
-                    # Avança o Playhead para a próxima fatia do compasso
                     current_time_ms += slice_ms
                     current_measure_pos_ms += slice_ms
 
-                # Processa os eventos pendurados no final exato do compasso
                 for ev in measure_events:
                     if ev['idx'] == note_count and note_count > 0:
                         if ev['type'] == 'BPM': current_bpm = ev['value']
@@ -404,7 +391,6 @@ class SheetCooker:
                         elif ev['type'] == 'SCROLL': current_scroll = ev['value']
                         elif ev['type'] == 'DELAY': current_time_ms += ev['value'] * 1000.0
                         elif ev['type'] == 'MEASURE': current_measure_beats = ev['value']
-                        # Hook da Letra
                         elif ev['type'] == 'LYRIC':
                             if hasattr(self, 'lyric_cooker') and self.lyric_cooker:
                                 self.lyric_cooker.add_lyric(current_time_ms / 1000.0, ev['value'])
@@ -415,14 +401,9 @@ class SheetCooker:
                     'gogo': meas_gogo_h, 'drums_start': drums_start, 'drums_cnt': drums_cnt,
                 })
 
-                # O tempo absoluto do próximo compasso começa exatamente de onde a agulha parou
                 abs_time_ms = current_time_ms
                 measure_buf = ""
                 measure_events = []
-
-        # =================================================================
-        # FIM DA RENDERIZAÇÃO DO COMPASSO
-        # =================================================================
 
         if measures_raw:
             bpm_counts = defaultdict(int)
@@ -440,8 +421,17 @@ class SheetCooker:
 
         chunks = [header]
         for m in measures_raw:
-            mstruct = struct.pack(ORDER + 'ffBBHiiiiiii',
-                                  m['bpm'], m['fumen_offset'], int(m['gogo']), 1, 0, -1, -1, -1, -1, -1, -1, 0)
+
+            # 🔥 CORREÇÃO DO COMPASSO WII 3: Tamanho estrito de 26 bytes!
+            if self.target_version == "wii3":
+                # 'ffBBHiiiH' -> BPM(4), Offset(4), Gogo(1), Hidden(1), Pad(2), C1(4), C2(4), C3(4), MagicShort(2) = 26 bytes.
+                mstruct = struct.pack(ORDER + 'ffBBHiiiH',
+                                      m['bpm'], m['fumen_offset'], int(m['gogo']), 1, 0xFFFF, -1, -1, -1, 0)
+            else:
+                # 'ffBBHiiiiiii' -> 40 bytes para Wii 4/5
+                mstruct = struct.pack(ORDER + 'ffBBHiiiiiii',
+                                      m['bpm'], m['fumen_offset'], int(m['gogo']), 1, 0, -1, -1, -1, -1, -1, -1, 0)
+
             chunks.append(mstruct)
 
             start, end = m['drums_start'], m['drums_start'] + m['drums_cnt']
@@ -485,7 +475,6 @@ class SheetCooker:
 
             suffix = self.suffix_map[course_clean]
 
-            # 🎵 URA ONI (Extra) LOGIC:
             if suffix == 'x':
                 current_id = f"ex_{self.song_id}" if not self.song_id.startswith("ex_") else self.song_id
                 file_suffix = 'm'
@@ -493,9 +482,6 @@ class SheetCooker:
                 current_id = self.song_id
                 file_suffix = suffix
 
-            # 🔥 O FIX DO IMPOSTOR ESTÁ AQUI:
-            # Se o ID começar com "ex_", nós PROIBIMOS qualquer dificuldade que não seja o Edit original ('x').
-            # Isso impede que o Oni normal ('m') sobrescreva o arquivo da Edit!
             if self.song_id.startswith("ex_") and suffix != 'x':
                 continue
 
@@ -512,13 +498,11 @@ class SheetCooker:
             print("Failed to compile any difficulty! (If making an ex_ song, ensure the TJA has an 'Edit' or 'Ura' course)")
             return
 
-        # Hierarchy for fallback (lowest to highest)
         hierarchy = ['e', 'n', 'h', 'm', 'x']
 
-        # Sort the generated difficulties based on hierarchy to pick the highest available
         sorted_generated = sorted(generated_suffixes, key=lambda s: hierarchy.index(s))
         fallback_source = sorted_generated[-1]
-        
+
         fallback_id = f"ex_{self.song_id}" if (fallback_source == 'x' and not self.song_id.startswith("ex_")) else self.song_id
         fallback_suffix = 'm' if fallback_source == 'x' else fallback_source
 
@@ -528,12 +512,11 @@ class SheetCooker:
             required_suffixes = ['m']
         else:
             required_suffixes = ['e', 'n', 'h', 'm']
-            
+
         for req in required_suffixes:
-            # Se precisamos de 'm' e ele já foi gerado através da tag 'x', ignoramos o fallback
             if req == 'm' and 'x' in generated_suffixes:
                 continue
-                
+
             if req not in generated_suffixes:
                 print(f"Creating placeholder '{req}' from '{fallback_suffix}' to prevent engine crash...")
                 shutil.copy2(source_bin, os.path.join(solo_dir, f"{self.song_id}_{req}.bin"))

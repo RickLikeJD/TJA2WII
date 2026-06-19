@@ -1,158 +1,203 @@
 import os
 import struct
 
-# ========= TECHNICAL CONFIGURATIONS =========
-RECORD_SIZE = 2244
-FUMEN_SIZE = 124     # Exact, non-negotiable size per chart slot
-PAD_SIZE = 620       # Strict padding with 0xFF bytes for unused slots
+VERSIONS = {
+    3: "Taiko Wii: Minna no Party Sandaime",
+    4: "Taiko Wii: Keitebban",
+    5: "Taiko Wii: Chogouka-Ban"
+}
 
 # Slot representations: e = Easy (Kantan), n = Normal (Futsuu), h = Hard (Muzukashii), m = Oni (Mania)
 SLOT_LABELS = ["e", "n", "h", "m"]
 
-# Base score values per difficulty (Easy, Normal, Hard, Oni, Ura)
+# Base score values per difficulty
 SCORE_PER_DIFF = [6000, 7000, 7000, 8000, 8000]
 
-# Fixed byte values required by the game engine for valid chart loading
-FUMEN_CONST_FIELDS = {
-    0x24: 4,
-    0x28: 16,
-    0x2c: 0,         # Course ID: Kept at 0 (engine infers difficulty by physical memory offset)
-    0x3c: 10000,
-    0x44: 65536,
-    0x48: 65536,
-    0x4c: 65536,
-    0x50: 20,
-    0x54: 10,
-    0x58: 0,
-    0x5c: 1,
-    0x60: 20,
-    0x64: 10,
-    0x68: 1,
-    0x6c: 30,
-    0x70: 30,
-    0x74: 0,
-}
+# Extraído do dump original do Wii 3: Janelas de Acerto e Incrementos da Soul Gauge
+# Sem isso, o motor das engines antigas (Wii 1 ao 4) oculta as estrelas!
+DIFF_CONSTANTS = [
+    # 0 = Easy
+    {0x0C: 1050, 0x10: 450, 0x18: 2, 0x1C: 6, 0x20: 7, 0x30: 219, 0x34: 164, 0x38: -110 & 0xFFFFFFFF},
+    # 1 = Normal
+    {0x0C: 1260, 0x10: 380, 0x18: 2, 0x1C: 6, 0x20: 7, 0x30: 128, 0x34: 96,  0x38: -96 & 0xFFFFFFFF},
+    # 2 = Hard
+    {0x0C: 800,  0x10: 210, 0x18: 1, 0x1C: 4, 0x20: 6, 0x30: 61,  0x34: 46,  0x38: -76 & 0xFFFFFFFF},
+    # 3 = Oni / Ura
+    {0x0C: 860,  0x10: 210, 0x18: 1, 0x1C: 4, 0x20: 6, 0x30: 47,  0x34: 24,  0x38: -76 & 0xFFFFFFFF}
+]
 
 class TuningCooker:
-    """
-    Handles the serialization and compilation of Taiko no Tatsujin tuning.bin files.
-    Manages memory pointers, string pooling, and strict byte alignment.
-    """
-    
-    def __init__(self):
-        self.songs = []
-        self.string_pool = bytearray()
-        self.reuse_strings = {}
+    def __init__(self, target_version="wii5"):
+        self.target_version = target_version.lower()
+        self.songs_metadata = []
 
-    def _add_string(self, text, encoding='ascii'):
-        """
-        Adds a string to the global memory pool and returns its pointer (offset).
-        Prevents string duplication to optimize memory footprint.
-        """
-        if not text:
-            return 0xFFFFFFFF
-        if text in self.reuse_strings:
-            return self.reuse_strings[text]
+        # ==========================================
+        # 🎮 PERFIS DE HARDWARE / ENGINE
+        # ==========================================
+        if self.target_version == "wii3":
+            self.FUMEN_SIZE = 120
+            self.PAD_SIZE = 600
+            self.USE_INLINE_STRINGS = True
+            self.INJECT_DIFF_CONSTANTS = True # Crucial para Wii 3
 
-        offset = len(self.string_pool)
-        self.string_pool.extend(text.encode(encoding, errors='replace') + b'\x00')
-        self.reuse_strings[text] = offset
-        return offset
+        elif self.target_version in ["wii4", "wii5"]:
+            self.FUMEN_SIZE = 124
+            self.PAD_SIZE = 620
+            self.USE_INLINE_STRINGS = False
+            self.INJECT_DIFF_CONSTANTS = False # Wii 5 ignora/calcula na engine
+        else:
+            raise ValueError(f"Versão de target não suportada: {self.target_version}")
+
+        # Os offsets base são idênticos em todos os jogos!
+        # A diferença é apenas o limite de bytes no final (120 vs 124).
+        self.FUMEN_CONST_FIELDS = {
+            0x24: 4,      0x28: 16,     0x2c: 0,      0x3c: 10000,
+            0x44: 65536,  0x48: 65536,  0x4c: 65536,  0x50: 20,
+            0x54: 10,     0x58: 0,      0x5c: 1,      0x60: 20,
+            0x64: 10,     0x68: 1,      0x6c: 30,     0x70: 30,
+            0x74: 0,
+        }
+
+    def add_song(self, song_id, jpname, bpm, stars_list):
+        self.songs_metadata.append({
+            "id": song_id,
+            "jpname": jpname,
+            "bpm": bpm,
+            "stars": stars_list
+        })
+        is_ura_only = song_id.startswith("ex_")
+        if is_ura_only:
+            print(f"[Tuning] URA-Only Song '{song_id}' scheduled! (E/N/H will be nulled)")
+        else:
+            print(f"[Tuning] Song '{song_id}' scheduled for compilation!")
 
     def _build_fumen(self, ptr, stars, bpm, diff_index):
-        """
-        Builds the 124-byte struct for a single chart difficulty.
-        """
-        raw = bytearray(FUMEN_SIZE)
+        raw = bytearray(self.FUMEN_SIZE)
 
-        # Write dynamic variables first to prevent overwrites
+        # 1. Variáveis Dinâmicas
         struct.pack_into(">I", raw, 0x00, ptr)
         struct.pack_into(">I", raw, 0x04, int(stars))
         struct.pack_into(">I", raw, 0x08, int(bpm))
         struct.pack_into(">I", raw, 0x40, SCORE_PER_DIFF[diff_index])
 
-        # Write required engine constants, skipping the offsets already populated
-        for off, val in FUMEN_CONST_FIELDS.items():
-            if off not in [0x00, 0x04, 0x08, 0x40]:
+        # 2. Constantes Obrigatórias da Engine Antiga (Hit Windows / Gauge)
+        if self.INJECT_DIFF_CONSTANTS:
+            diff_data = DIFF_CONSTANTS[min(diff_index, 3)] # Ura usa os stats do Oni
+            for off, val in diff_data.items():
+                struct.pack_into(">I", raw, off, val)
+
+        # 3. Constantes de Base da Memória (Idêntico para todos os Wiis)
+        for off, val in self.FUMEN_CONST_FIELDS.items():
+            if off < self.FUMEN_SIZE: # Previne overflow no Wii 3
                 struct.pack_into(">I", raw, off, val)
 
         return raw
 
-    def add_song(self, song_id, jpname, bpm, stars_list):
-        """
-        Generates the complete 2244-byte binary record for a single song.
-        Includes 1P and 2P chart structs and required 0xFF memory padding.
-        """
-        p_id = self._add_string(song_id, 'ascii')
-        p_mu = self._add_string(f"music_{song_id}", 'ascii')
-        p_jp = self._add_string(jpname, 'utf-8')
-
-        record_data = bytearray()
-
-        # Header (12 bytes)
-        record_data.extend(struct.pack('>3I', p_id, p_mu, p_jp))
-
-        # 🔥 VERIFICAÇÃO DO URA EXCLUSIVO
-        is_ura_only = song_id.startswith("ex_")
-
-        # 1P and 2P chart data generation
-        for player in ["1p", "2p"]:
-            for slot_idx, label in enumerate(SLOT_LABELS):
-                
-                # 🔥 SE FOR 'ex_' E A DIFICULDADE NÃO FOR 'm' (Oni), NULA O BLOCO!
-                if is_ura_only and label in ["e", "n", "h"]:
-                    record_data.extend(b'\xff' * FUMEN_SIZE)
-                else:
-                    # 🔥 FIX: Puxar as estrelas do Edit (índice 4) em vez do Oni (índice 3) para músicas Ura
-                    if is_ura_only and label == "m":
-                        star_idx = 4 if len(stars_list) > 4 else slot_idx
-                    else:
-                        star_idx = slot_idx
-
-                    stars = int(stars_list[star_idx])
-                    ptr = self._add_string(f"{song_id}{player}_{label}", "ascii")
-                    
-                    chart_data = self._build_fumen(ptr, stars, bpm, slot_idx)
-                    record_data.extend(chart_data)
-
-            # Strict padding to ensure the block meets the 1116-byte requirement per player
-            record_data.extend(b'\xff' * PAD_SIZE)
-        
-        # Store as a tuple (song_id, data) to allow binary search sorting later
-        self.songs.append((song_id, record_data))
-        
-        if is_ura_only:
-            print(f"[Tuning] URA-Only Song '{song_id}' processed! (E/N/H nulled)")
-        else:
-            print(f"[Tuning] Song '{song_id}' processed to memory!")
-
     def cook_tuning(self):
-        """
-        Compiles all processed songs into the final tuning.bin file.
-        Sorts the entries alphabetically by song_id to support the engine's bsearch algorithm.
-        """
-        if not self.songs:
+        if not self.songs_metadata:
             return
 
-        print(f"\nCooking Tuning (.bin) with {len(self.songs)} songs...")
+        print(f"\nCooking Tuning (.bin) for {self.target_version.upper()} with {len(self.songs_metadata)} songs...")
         output_dir = os.path.join("output", "sheet", "tuning", "bin")
         os.makedirs(output_dir, exist_ok=True)
         save_path = os.path.join(output_dir, "tuning.bin")
 
-        # Header: Total song count
-        new_data = bytearray(struct.pack('>I', len(self.songs)))
+        self.songs_metadata.sort(key=lambda x: x["id"])
 
-        # Alphabetical sort required by the game's native C++ binary search implementation
-        self.songs.sort(key=lambda x: x[0])
+        final_binary = bytearray()
+        final_binary.extend(struct.pack('>I', len(self.songs_metadata)))
 
-        for song_id, record in self.songs:
-            new_data.extend(record)
+        if self.USE_INLINE_STRINGS:
+            # Wii 3: Strings Inline
+            current_file_offset = 4
 
-        # Append the global string pool at the end of the file
-        new_data.extend(self.string_pool)
+            for song in self.songs_metadata:
+                song_id = song["id"]
+                jpname = song["jpname"]
+
+                fixed_block_size = 12 + (8 * self.FUMEN_SIZE) + (2 * self.PAD_SIZE)
+                inline_base_offset = current_file_offset + fixed_block_size
+
+                inline_pool = bytearray()
+                inline_dict = {}
+
+                def get_inline_ptr(text, is_utf=False):
+                    if not text: return 0xFFFFFFFF
+                    if text in inline_dict: return inline_base_offset + inline_dict[text]
+                    offset = len(inline_pool)
+                    encoding = 'utf-8' if is_utf else 'ascii'
+                    inline_pool.extend(text.encode(encoding, errors='replace') + b'\x00')
+                    inline_dict[text] = offset
+                    return inline_base_offset + offset
+
+                record_data = bytearray()
+                p_id = get_inline_ptr(song_id)
+                p_mu = get_inline_ptr(f"music_{song_id}")
+                p_jp = get_inline_ptr(jpname, is_utf=True)
+
+                record_data.extend(struct.pack('>3I', p_id, p_mu, p_jp))
+                is_ura = song_id.startswith("ex_")
+
+                for player in ["1p", "2p"]:
+                    for slot_idx, label in enumerate(SLOT_LABELS):
+                        if is_ura and label in ["e", "n", "h"]:
+                            record_data.extend(b'\xff' * self.FUMEN_SIZE)
+                        else:
+                            star_idx = 4 if (is_ura and label == "m" and len(song["stars"]) > 4) else slot_idx
+                            stars = song["stars"][star_idx]
+                            ptr = get_inline_ptr(f"{song_id}{player}_{label}")
+                            chart_data = self._build_fumen(ptr, stars, song["bpm"], slot_idx)
+                            record_data.extend(chart_data)
+                    record_data.extend(b'\xff' * self.PAD_SIZE)
+
+                record_data.extend(inline_pool)
+                final_binary.extend(record_data)
+                current_file_offset += len(record_data)
+
+        else:
+            # Wii 5: Global Pool
+            global_pool = bytearray()
+            global_dict = {}
+            fixed_record_size = 12 + (8 * self.FUMEN_SIZE) + (2 * self.PAD_SIZE)
+            base_pool_offset = 4 + (len(self.songs_metadata) * fixed_record_size)
+
+            def get_global_ptr(text, is_utf=False):
+                if not text: return 0xFFFFFFFF
+                if text in global_dict: return base_pool_offset + global_dict[text]
+                offset = len(global_pool)
+                encoding = 'utf-8' if is_utf else 'ascii'
+                global_pool.extend(text.encode(encoding, errors='replace') + b'\x00')
+                global_dict[text] = offset
+                return base_pool_offset + offset
+
+            for song in self.songs_metadata:
+                song_id = song["id"]
+                jpname = song["jpname"]
+                is_ura = song_id.startswith("ex_")
+
+                record_data = bytearray()
+                p_id = get_global_ptr(song_id)
+                p_mu = get_global_ptr(f"music_{song_id}")
+                p_jp = get_global_ptr(jpname, is_utf=True)
+                record_data.extend(struct.pack('>3I', p_id, p_mu, p_jp))
+
+                for player in ["1p", "2p"]:
+                    for slot_idx, label in enumerate(SLOT_LABELS):
+                        if is_ura and label in ["e", "n", "h"]:
+                            record_data.extend(b'\xff' * self.FUMEN_SIZE)
+                        else:
+                            star_idx = 4 if (is_ura and label == "m" and len(song["stars"]) > 4) else slot_idx
+                            stars = song["stars"][star_idx]
+                            ptr = get_global_ptr(f"{song_id}{player}_{label}")
+                            chart_data = self._build_fumen(ptr, stars, song["bpm"], slot_idx)
+                            record_data.extend(chart_data)
+                    record_data.extend(b'\xff' * self.PAD_SIZE)
+
+                final_binary.extend(record_data)
+            final_binary.extend(global_pool)
 
         with open(save_path, 'wb') as f:
-            f.write(new_data)
-        
-        print(f"[OK] Global tuning.bin successfully sorted and generated at {save_path}!")
-        print(f"    Total: {len(new_data)} bytes ({len(self.songs)} songs + string pool)")
+            f.write(final_binary)
+
+        print(f"[OK] Global tuning.bin successfully generated at {save_path}!")
+        print(f"    Total: {len(final_binary)} bytes ({len(self.songs_metadata)} songs processed)")
