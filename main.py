@@ -54,7 +54,7 @@ def main():
     info_cooker = MusicInfoCooker() # Passe a versão aqui também se necessário no futuro
     tuning_cooker = TuningCooker(target_version=target_version_id)
     sync_cooker = FumenSyncCooker()
-    texture_cooker = TextureCooker()
+    texture_cooker = TextureCooker(target_version=target_version_id)
 
     session_file = "session.json"
     session_data = []

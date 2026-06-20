@@ -7,8 +7,10 @@ from collections import defaultdict
 import re
 
 # ===========================================================================
-# CONSTANTS TJA -> WII5 (BIG ENDIAN)
+# CONSTANTS TJA -> WII ENGINE (SEMPRE BIG ENDIAN NO WII)
 # ===========================================================================
+ORDER = '>'
+
 TJA_TO_WII5 = {
     '1': 0x1,   # Small Don
     '2': 0x4,   # Small Ka
@@ -21,11 +23,21 @@ TJA_TO_WII5 = {
     'A': 0xb,   # DON 2 hands
     'B': 0xd,   # KA 2 hands
 }
-LONG_NOTE_TYPES = {'5', '6', '7', '9'}
-BALLOON_IDS     = {0xa, 0xc}
-DRUMROLL_IDS    = {0x6, 0x9, 0x62}
 
-ORDER = '>'
+TJA_TO_WII3 = {
+    '1': 0x1,   # Don
+    '2': 0x4,   # Ka
+    '3': 0xb,   # BIG DON
+    '4': 0xd,   # BIG KA
+    '5': 0x6,   # Drumroll
+    '6': 0x9,   # BIG DRUMROLL
+    '7': 0x7,   # Balloon
+    '9': 0xa,   # Kusudama
+    'A': 0xb,   # DON 2 hands
+    'B': 0xd,   # KA 2 hands
+}
+
+LONG_NOTE_TYPES = {'5', '6', '7', '9'}
 
 STAR_TO_KEY = {
     'Oni':    {1:'17',2:'17',3:'17',4:'17',5:'17',6:'17',7:'17',8:'8', 9:'910',10:'910'},
@@ -35,6 +47,9 @@ STAR_TO_KEY = {
 }
 
 HP_CLEAR = {'Easy': 6000, 'Normal': 7000, 'Hard': 7000, 'Oni': 8000, 'Ura': 8000}
+
+BALLOON_IDS     = {0xa, 0xc}
+DRUMROLL_IDS    = {0x6, 0x9, 0x62}
 
 TIMING_WINDOWS = {
     'Easy':   (41.7083358764648,  108.441665649414, 125.125),
@@ -128,7 +143,11 @@ class SheetCooker:
     def fix_dk_note_types(self, notes_data: list, song_bpm: float):
         DON_TYPES = {0x1, 0x2, 0x3}
         KA_TYPES  = {0x4, 0x5}
-        BIG_TYPES = {0x7, 0x8, 0xb, 0xd}
+
+        if self.target_version == "wii3":
+            BIG_TYPES = {0xb, 0xd}
+        else:
+            BIG_TYPES = {0x7, 0x8, 0xb, 0xd}
 
         dk = [n for n in notes_data if n['type'] in DON_TYPES | KA_TYPES]
         if not dk: return
@@ -196,21 +215,65 @@ class SheetCooker:
         good, ok, bad = self.get_hp_values(n_notes, diff_hp, stars)
         hp_clear = HP_CLEAR.get(diff_hp, 8000)
 
-        # 🔥 CORREÇÃO GLOBAL DO WII 3: Injeção do Total de Notas para fechar o alinhamento de 516 bytes
         if self.target_version == "wii3":
-            fmt = ORDER + 'f'*108 + 'i'*21
-            vals = list(tw) * 36 + [
-                0, n_notes, 10000, hp_clear, good, ok, bad, 65536, 65536, 65536,
-                20, 10, 0, 1, 20, 10, 1, 30, 30, 0, n_measures
-            ]
-        else:
-            fmt  = ORDER + 'f'*108 + 'i'*22
-            vals = list(tw) * 36 + [
-                0, 10000, hp_clear, good, ok, bad, 65536, 65536, 65536,
-                20, 10, 0, 1, 20, 10, 1, 30, 30, 20, 12345678, n_measures, 0,
+            # Wii 3 Header: 456 bytes exatos
+            tw_list = list(tw) * 32
+            floats = tw_list[:94]
+
+            ints = [
+                618752,
+                10000,
+                hp_clear,
+                good,
+                ok,
+                bad,
+                65536,
+                65536,
+                65536,
+                20,
+                10,
+                0,
+                1,
+                20,
+                10,
+                1,
+                30,
+                30,
+                0,
+                n_measures
             ]
 
-        return struct.pack(fmt, *vals)
+            fmt = ORDER + 'f'*94 + 'i'*20
+            return struct.pack(fmt, *(floats + ints))
+
+        else:
+            # Wii 5 Header: 520 bytes exatos
+            fmt = ORDER + 'f'*108 + 'i'*22
+            vals = list(tw) * 36 + [
+                0,
+                10000,
+                hp_clear,
+                good,
+                ok,
+                bad,
+                65536,
+                65536,
+                65536,
+                20,
+                10,
+                0,
+                1,
+                20,
+                10,
+                1,
+                30,
+                30,
+                20,
+                12345678,
+                n_measures,
+                0,
+            ]
+            return struct.pack(fmt, *vals)
 
     def auto_calculate_scores(self, total_notes):
         if total_notes == 0: return 300, 120
@@ -226,6 +289,16 @@ class SheetCooker:
         return score_diff * 4, score_diff
 
     def cook_course(self, target_course: str, output_filename: str):
+        # Setup dinâmico de mapas e IDs
+        if self.target_version == "wii3":
+            tja_map = TJA_TO_WII3
+            balloon_ids = {0x7, 0xa}
+            drumroll_ids = {0x6, 0x9}
+        else:
+            tja_map = TJA_TO_WII5
+            balloon_ids = BALLOON_IDS
+            drumroll_ids = DRUMROLL_IDS
+
         lines = self.tja_content.split('\n')
         bpm_base, offset_s = 120.0, 0.0
 
@@ -367,8 +440,8 @@ class SheetCooker:
                                 ni, start_t = open_long_note
                                 notes_data[ni]['duration'] = max(1.0, note_abs_ms - start_t)
                                 open_long_note = None
-                        elif n_char in TJA_TO_WII5:
-                            nt = TJA_TO_WII5[n_char]
+                        elif n_char in tja_map:
+                            nt = tja_map[n_char]
                             if n_char in LONG_NOTE_TYPES and open_long_note is not None:
                                 ni, start_t = open_long_note
                                 notes_data[ni]['duration'] = max(1.0, note_abs_ms - start_t)
@@ -411,7 +484,7 @@ class SheetCooker:
             song_bpm = max(bpm_counts, key=bpm_counts.get)
             self.fix_dk_note_types(notes_data, song_bpm)
 
-        n_notes_total = sum(1 for n in notes_data if n['type'] not in DRUMROLL_IDS)
+        n_notes_total = sum(1 for n in notes_data if n['type'] not in drumroll_ids)
         if score_init is None or score_diff is None:
             score_init, score_diff = self.auto_calculate_scores(n_notes_total)
 
@@ -422,13 +495,11 @@ class SheetCooker:
         chunks = [header]
         for m in measures_raw:
 
-            # 🔥 CORREÇÃO DO COMPASSO WII 3: Tamanho estrito de 26 bytes!
+            # 🔥 CORREÇÃO DO COMPASSO: Wii 3 requer 24 bytes exatos (ffBBHiiHH), Wii 5 requer 40 bytes!
             if self.target_version == "wii3":
-                # 'ffBBHiiiH' -> BPM(4), Offset(4), Gogo(1), Hidden(1), Pad(2), C1(4), C2(4), C3(4), MagicShort(2) = 26 bytes.
-                mstruct = struct.pack(ORDER + 'ffBBHiiiH',
-                                      m['bpm'], m['fumen_offset'], int(m['gogo']), 1, 0xFFFF, -1, -1, -1, 0)
+                mstruct = struct.pack(ORDER + 'ffBBHiiHH',
+                                      m['bpm'], m['fumen_offset'], int(m['gogo']), 1, 0xFFFF, -1, -1, 0xFFFF, 0x4F6C)
             else:
-                # 'ffBBHiiiiiii' -> 40 bytes para Wii 4/5
                 mstruct = struct.pack(ORDER + 'ffBBHiiiiiii',
                                       m['bpm'], m['fumen_offset'], int(m['gogo']), 1, 0, -1, -1, -1, -1, -1, -1, 0)
 
@@ -440,15 +511,34 @@ class SheetCooker:
                 if bi == 0:
                     for nd in notes_data[start:end]:
                         nt = nd['type']
-                        is_balloon, is_drumroll = nt in BALLOON_IDS, nt in DRUMROLL_IDS
+                        is_balloon, is_drumroll = nt in balloon_ids, nt in drumroll_ids
 
-                        if is_balloon: si, sd = nd['hits'] & 0xFFFF, 0
-                        elif is_drumroll: si, sd = 0, 0
-                        else: si, sd = score_init, score_diff
+                        if self.target_version == "wii3":
+                            # Lógica exclusiva e milimétrica para a Engine do Wii 3
+                            if is_balloon:
+                                si, sd = nd['hits'] & 0xFFFF, 0
+                                magic_pad = 0x60b54000
+                            elif is_drumroll:
+                                si, sd = score_init, score_diff
+                                magic_pad = 0x48b84000
+                            else:
+                                si, sd = score_init, score_diff
+                                magic_pad = 0x40bc4000
 
-                        nstruct = struct.pack(ORDER + 'ififHHf', nt, nd['pos'], 0, 0.0, si, sd, nd['duration'])
-                        chunks.append(nstruct)
-                        if is_drumroll: chunks.append(b'\x00' * 8)
+                            if is_drumroll:
+                                nstruct = struct.pack(ORDER + 'ifiIHHfII', nt, nd['pos'], 0, magic_pad, si, sd, nd['duration'], 0x284c7100, 0)
+                            else:
+                                nstruct = struct.pack(ORDER + 'ifiIHHf', nt, nd['pos'], 0, magic_pad, si, sd, nd['duration'])
+                            chunks.append(nstruct)
+                        else:
+                            # Lógica padrão para a Engine do Wii 5 (Padding Zeros)
+                            if is_balloon: si, sd = nd['hits'] & 0xFFFF, 0
+                            elif is_drumroll: si, sd = 0, 0
+                            else: si, sd = score_init, score_diff
+
+                            nstruct = struct.pack(ORDER + 'ififHHf', nt, nd['pos'], 0, 0.0, si, sd, nd['duration'])
+                            chunks.append(nstruct)
+                            if is_drumroll: chunks.append(b'\x00' * 8)
 
         with open(output_filename, 'wb') as f:
             for c in chunks: f.write(c)

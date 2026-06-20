@@ -55,13 +55,14 @@ TO_REPLACE_VERTICAL = {
 }
 
 class TextureCooker:
-    def __init__(self, font_name="TnT.ttf"):
+    def __init__(self, font_name="TnT.ttf", target_version="wii5"):
         self.songs = []
         self.font_path = os.path.join(CURRENT_DIR, font_name)
         self.genre_color = self._hex_to_rgba("004A52")
         self.text_color = (255, 255, 255, 255)
         self.stroke_width_base = 5
         self.wimgt_path = os.path.abspath(os.path.join("src", "Texture", "bin", "wimgt.exe"))
+        self.target_version = target_version.lower()
 
     def add_song(self, song_title, song_artist, song_id):
         self.songs.append({
@@ -327,6 +328,10 @@ class TextureCooker:
             return
 
         base_name = FILENAME_MAP.get(suffix, f"SONG_{suffix}")
+
+        if self.target_version == "wii3" and base_name == "game":
+            base_name = "games"
+
         filename = f"{base_name}_{idx_str}.png"
 
         final_img = img.resize((specs["width"], specs["height"]), Image.Resampling.BICUBIC)
@@ -372,9 +377,11 @@ class TextureCooker:
                 self._generate_taiko_texture(suffix, specs, temp_dir, song, idx_str)
             self._generate_select_non(temp_dir, song, idx_str)
 
+        game_prefix = "games" if self.target_version == "wii3" else "game"
+
         for i, song in enumerate(self.songs, start=1):
             idx_str = f"{i:03d}"
-            for single_type in ["game", "result"]:
+            for single_type in [game_prefix, "result"]:
                 png_path = os.path.join(temp_dir, f"{single_type}_{idx_str}.png")
                 tpl_path = os.path.join(temp_dir, f"{single_type}_{idx_str}.tpl")
                 out_path = os.path.join(output_dir, f"{single_type}_{idx_str}.ctpl")
