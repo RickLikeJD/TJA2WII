@@ -30,7 +30,7 @@ This tool has been explicitly built for and tested with:
 
 * -[x] TnT Wii: Chogouka-Ban** (Taiko Wii 5)
 * -[x] TnT Wii: Keitebban** (Taiko Wii 4)
-* -[ ] TnT Wii: Minna no Party Sandaime** (Taiko Wii 3)
+* -[x] TnT Wii: Minna no Party Sandaime** (Taiko Wii 3)
 * -[ ] TnT Wii: Do-Don to Nidaime!** (Taiko Wii 2)
 * -[ ] Taiko no Tatsujin Wii** (Taiko Wii)
 ## Installation
@@ -123,7 +123,7 @@ Compatível e testado com:
 
 * -[x] TnT Wii: Chogouka-Ban** (Taiko Wii 5)
 * -[x] TnT Wii: Keitebban** (Taiko Wii 4)
-* -[ ] TnT Wii: Minna no Party Sandaime** (Taiko Wii 3)
+* -[x] TnT Wii: Minna no Party Sandaime** (Taiko Wii 3)
 * -[ ] TnT Wii: Do-Don to Nidaime!** (Taiko Wii 2)
 * -[ ] Taiko no Tatsujin Wii** (Taiko Wii)
 
