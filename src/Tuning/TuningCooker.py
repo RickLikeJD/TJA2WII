@@ -108,27 +108,24 @@ class TuningCooker:
         final_binary.extend(struct.pack('>I', len(self.songs_metadata)))
 
         if self.USE_INLINE_STRINGS:
-            # Wii 3: Strings Inline
-            current_file_offset = 4
-
+            # Wii 3: Strings Inline (Ponteiros 0-indexed por música)
             for song in self.songs_metadata:
                 song_id = song["id"]
                 jpname = song["jpname"]
-
-                fixed_block_size = 12 + (8 * self.FUMEN_SIZE) + (2 * self.PAD_SIZE)
-                inline_base_offset = current_file_offset + fixed_block_size
 
                 inline_pool = bytearray()
                 inline_dict = {}
 
                 def get_inline_ptr(text, is_utf=False):
                     if not text: return 0xFFFFFFFF
-                    if text in inline_dict: return inline_base_offset + inline_dict[text]
+                    if text in inline_dict: return inline_dict[text]
+
+                    # O pulo do gato: Retorna SOMENTE o tamanho atual da pool (Ponteiro Relativo!)
                     offset = len(inline_pool)
                     encoding = 'utf-8' if is_utf else 'ascii'
                     inline_pool.extend(text.encode(encoding, errors='replace') + b'\x00')
                     inline_dict[text] = offset
-                    return inline_base_offset + offset
+                    return offset
 
                 record_data = bytearray()
                 p_id = get_inline_ptr(song_id)
@@ -152,23 +149,22 @@ class TuningCooker:
 
                 record_data.extend(inline_pool)
                 final_binary.extend(record_data)
-                current_file_offset += len(record_data)
 
         else:
-            # Wii 5: Global Pool
+            # Wii 5: Global Pool (Ponteiros 0-indexed para toda a pool)
             global_pool = bytearray()
             global_dict = {}
-            fixed_record_size = 12 + (8 * self.FUMEN_SIZE) + (2 * self.PAD_SIZE)
-            base_pool_offset = 4 + (len(self.songs_metadata) * fixed_record_size)
 
             def get_global_ptr(text, is_utf=False):
                 if not text: return 0xFFFFFFFF
-                if text in global_dict: return base_pool_offset + global_dict[text]
+                if text in global_dict: return global_dict[text]
+
+                # O pulo do gato: Retorna SOMENTE o tamanho atual da pool global (Ponteiro Relativo!)
                 offset = len(global_pool)
                 encoding = 'utf-8' if is_utf else 'ascii'
                 global_pool.extend(text.encode(encoding, errors='replace') + b'\x00')
                 global_dict[text] = offset
-                return base_pool_offset + offset
+                return offset
 
             for song in self.songs_metadata:
                 song_id = song["id"]
